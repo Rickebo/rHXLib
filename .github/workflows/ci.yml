@@ -33,3 +33,4 @@ jobs:
           path: |
             **/TestResults/*.trx
             **/coverage.cobertura.xml
+          if-no-files-found: ignore

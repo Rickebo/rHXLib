@@ -41,7 +41,7 @@ jobs:
           META="+${GITHUB_RUN_NUMBER}.${GITHUB_SHA::7}"
           echo "value=${BASE}${META}" >> $GITHUB_OUTPUT
       - name: Pack
-        run: dotnet pack rHXLib/src/rHXLib/rHXLib.csproj -c Release -o ./artifacts /p:PackageVersion=${{ steps.version.outputs.value }}
+        run: dotnet pack src/rHXLib/rHXLib.csproj -c Release -o ./artifacts /p:PackageVersion=${{ steps.version.outputs.value }}
       - name: Add GitHub Packages source
         shell: bash
         run: |
