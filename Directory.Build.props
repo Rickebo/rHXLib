@@ -3,9 +3,9 @@
     <Authors>rHX</Authors>
     <Company>rHX</Company>
     <Product>rHXLib</Product>
-    <RepositoryUrl>https://github.com/unknown/rHXLib</RepositoryUrl>
+    <RepositoryUrl>https://github.com/Rickebo/rHXLib</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageProjectUrl>https://github.com/unknown/rHXLib</PackageProjectUrl>
+    <PackageProjectUrl>https://github.com/Rickebo/rHXLib</PackageProjectUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
     <PackageReadmeFile>README.md</PackageReadmeFile>
@@ -23,4 +23,3 @@
     <None Include="README.md" Pack="true" PackagePath="/" Condition="Exists('README.md')" />
   </ItemGroup>
 </Project>
-

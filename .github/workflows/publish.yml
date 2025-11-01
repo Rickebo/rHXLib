@@ -54,23 +54,3 @@ jobs:
         with:
           name: nupkg
           path: artifacts/*.nupkg
-
-  configure-nuget:
-    runs-on: ubuntu-latest
-    outputs:
-      nuget_config: ${{ steps.create.outputs.path }}
-    steps:
-      - name: Create nuget config
-        id: create
-        run: |
-          OWNER=${GITHUB_REPOSITORY%%/*}
-          cat > nuget.config <<EOF
-          <?xml version="1.0" encoding="utf-8"?>
-          <configuration>
-            <packageSources>
-              <add key="nuget" value="https://api.nuget.org/v3/index.json" />
-              <add key="github" value="https://nuget.pkg.github.com/${OWNER}/index.json" />
-            </packageSources>
-          </configuration>
-          EOF
-          echo "path=$(pwd)/nuget.config" >> $GITHUB_OUTPUT

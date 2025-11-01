@@ -54,7 +54,21 @@ public sealed class RhxPubSubClient : IRhxPubSubClient
         var token = await _tokenProvider.GetAccessTokenAsync(ct).ConfigureAwait(false);
 
         var socket = await GetOrConnectPublisherSocketAsync(topic, uri, token, ct).ConfigureAwait(false);
-        await socket.SendBinaryAsync(new ArraySegment<byte>(payload), ct).ConfigureAwait(false);
+        try
+        {
+            await socket.SendBinaryAsync(new ArraySegment<byte>(payload), ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is WebSocketException || ex is ObjectDisposedException)
+        {
+            _logger?.LogWarning(ex, "Publish send failed; attempting one reconnect for topic {Topic}", topic);
+            // Remove and dispose old socket if present
+            if (_publishSockets.TryRemove(topic, out var old)) { try { old.Dispose(); } catch { } }
+            var re = await _connectRetry.ExecuteAsync(async () =>
+                await _wsFactory.ConnectAsync(uri, token, _options.KeepAliveInterval, _options.ConnectTimeout, ct).ConfigureAwait(false)
+            ).ConfigureAwait(false);
+            _publishSockets.AddOrUpdate(topic, re, (_, prev) => { try { prev?.Dispose(); } catch { } return re; });
+            await re.SendBinaryAsync(new ArraySegment<byte>(payload), ct).ConfigureAwait(false);
+        }
     }
 
     public async Task<IDisposable> SubscribeAsync<T>(string topic, Func<T, MessageContext, Task> handler, SubscribeOptions? options = null, CancellationToken ct = default)
@@ -62,82 +76,125 @@ public sealed class RhxPubSubClient : IRhxPubSubClient
         if (_options.ApiBaseUrl == null) throw new InvalidOperationException("RhxLibOptions.ApiBaseUrl must be configured.");
         if (handler == null) throw new ArgumentNullException(nameof(handler));
 
-        var uri = BuildWsUri(_options.ApiBaseUrl, topic);
-        var token = await _tokenProvider.GetAccessTokenAsync(ct).ConfigureAwait(false);
-
-        var conn = await _connectRetry.ExecuteAsync(async () =>
-            await _wsFactory.ConnectAsync(uri, token, _options.KeepAliveInterval, _options.ConnectTimeout, ct).ConfigureAwait(false)
-        ).ConfigureAwait(false);
-
         var disposed = 0;
         var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var buffer = ArrayPool<byte>.Shared.Rent(Math.Max(16 * 1024, options?.ReceiveBufferBytes ?? 64 * 1024));
+
+        // Establish initial connection before returning to the caller
+        IWebSocketConnection? initialConn = null;
+        try
+        {
+            var initUri = BuildWsUri(_options.ApiBaseUrl, topic);
+            var initToken = await _tokenProvider.GetAccessTokenAsync(ct).ConfigureAwait(false);
+            initialConn = await _connectRetry.ExecuteAsync(async () =>
+                await _wsFactory.ConnectAsync(initUri, initToken, _options.KeepAliveInterval, _options.ConnectTimeout, ct).ConfigureAwait(false)
+            ).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Initial subscribe connect failed for topic {Topic}", topic);
+        }
 
         _ = Task.Run(async () =>
         {
             try
             {
                 var ms = new System.IO.MemoryStream(capacity: 16 * 1024);
-                while (!cts.IsCancellationRequested && conn.State == WebSocketState.Open)
+                while (!cts.IsCancellationRequested)
                 {
-                    ms.SetLength(0);
-                    int total = 0;
-                    ValueWebSocketReceiveResult? result = null;
-                    do
+                    // Use initial connection if available; otherwise connect now
+                    IWebSocketConnection conn;
+                    if (initialConn != null)
                     {
-                        var seg = new ArraySegment<byte>(buffer);
-                        var rr = await conn.ReceiveAsync(seg, cts.Token).ConfigureAwait(false);
-                        result = new ValueWebSocketReceiveResult(rr.count, rr.type, rr.endOfMessage);
-                        if (rr.type == WebSocketMessageType.Close)
-                        {
-                            try { await conn.CloseAsync(cts.Token).ConfigureAwait(false); } catch { }
-                            return;
-                        }
-                        if (rr.count > 0)
-                        {
-                            ms.Write(buffer, 0, rr.count);
-                            total += rr.count;
-                            if (total > 8 * 1024 * 1024) // 8 MiB safety cap client-side
-                                throw new InvalidOperationException($"Incoming message too large: {total} bytes");
-                        }
-                    } while (!result.Value.EndOfMessage);
-
-                    if (result.Value.MessageType != WebSocketMessageType.Text || ms.Length == 0)
-                        continue; // broker only emits text JSON for broadcasts
-
-                    var jsonStr = System.Text.Encoding.UTF8.GetString(ms.ToArray());
-                    if (!ServerPubSubMessage.TryParse(jsonStr, out var msg) || msg == null)
-                        continue;
+                        conn = initialConn;
+                        initialConn = null;
+                    }
+                    else
+                    {
+                        var uri = BuildWsUri(_options.ApiBaseUrl!, topic);
+                        var token = await _tokenProvider.GetAccessTokenAsync(cts.Token).ConfigureAwait(false);
+                        conn = await _connectRetry.ExecuteAsync(async () =>
+                            await _wsFactory.ConnectAsync(uri, token, _options.KeepAliveInterval, _options.ConnectTimeout, cts.Token).ConfigureAwait(false)
+                        ).ConfigureAwait(false);
+                    }
 
                     try
                     {
-                        var value = _serializer.Deserialize<T>(msg.Payload);
-                        var ctx = new MessageContext
+                        while (!cts.IsCancellationRequested && conn.State == WebSocketState.Open)
                         {
-                            Topic = msg.Header.Topic,
-                            Username = msg.Header.Username,
-                            TimestampUtc = msg.Header.SentAtUtc,
-                        };
-                        await handler(value, ctx).ConfigureAwait(false);
+                            ms.SetLength(0);
+                            int total = 0;
+                            ValueWebSocketReceiveResult? result = null;
+                            do
+                            {
+                                var seg = new ArraySegment<byte>(buffer);
+                                var rr = await conn.ReceiveAsync(seg, cts.Token).ConfigureAwait(false);
+                                result = new ValueWebSocketReceiveResult(rr.count, rr.type, rr.endOfMessage);
+                                if (rr.type == WebSocketMessageType.Close)
+                                {
+                                    try { await conn.CloseAsync(cts.Token).ConfigureAwait(false); } catch { }
+                                    break;
+                                }
+                                if (rr.count > 0)
+                                {
+                                    ms.Write(buffer, 0, rr.count);
+                                    total += rr.count;
+                                    if (total > 8 * 1024 * 1024)
+                                        throw new InvalidOperationException($"Incoming message too large: {total} bytes");
+                                }
+                            } while (!result.Value.EndOfMessage);
+
+                            if (result.HasValue && result.Value.MessageType == WebSocketMessageType.Text && ms.Length > 0)
+                            {
+                                var jsonStr = System.Text.Encoding.UTF8.GetString(ms.ToArray());
+                                if (ServerPubSubMessage.TryParse(jsonStr, out var msg) && msg != null)
+                                {
+                                    try
+                                    {
+                                        var value = _serializer.Deserialize<T>(msg.Payload);
+                                        var ctx = new MessageContext
+                                        {
+                                            Topic = msg.Header.Topic,
+                                            Username = msg.Header.Username,
+                                            TimestampUtc = msg.Header.SentAtUtc,
+                                        };
+                                        await handler(value, ctx).ConfigureAwait(false);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        _logger?.LogError(ex, "Error in subscriber handler for topic {Topic}", topic);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch (OperationCanceledException) { }
+                    catch (WebSocketException wse)
+                    {
+                        _logger?.LogDebug(wse, "WebSocket exception on topic {Topic}", topic);
                     }
                     catch (Exception ex)
                     {
-                        _logger?.LogError(ex, "Error in subscriber handler for topic {Topic}", topic);
+                        _logger?.LogWarning(ex, "WebSocket error on topic {Topic}", topic);
                     }
+                    finally
+                    {
+                        try { conn.Dispose(); } catch { }
+                    }
+
+                    if (cts.IsCancellationRequested) break;
+                    if (options?.ReconnectDelay is TimeSpan d)
+                    {
+                        try { await Task.Delay(d, cts.Token).ConfigureAwait(false); }
+                        catch (OperationCanceledException) { break; }
+                        continue; // reconnect
+                    }
+                    break; // no reconnect configured
                 }
             }
             catch (OperationCanceledException) { }
-            catch (WebSocketException wse)
-            {
-                _logger?.LogDebug(wse, "WebSocket exception on topic {Topic}", topic);
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogWarning(ex, "WebSocket error on topic {Topic}", topic);
-            }
             finally
             {
-                try { conn.Dispose(); } catch { }
                 ArrayPool<byte>.Shared.Return(buffer);
             }
         });
@@ -161,7 +218,7 @@ public sealed class RhxPubSubClient : IRhxPubSubClient
             await _wsFactory.ConnectAsync(uri, token, _options.KeepAliveInterval, _options.ConnectTimeout, ct).ConfigureAwait(false)
         ).ConfigureAwait(false);
 
-        _publishSockets.AddOrUpdate(topic, conn, (_, __) => conn);
+        _publishSockets.AddOrUpdate(topic, conn, (_, old) => { try { old?.Dispose(); } catch { } return conn; });
         return conn;
     }
 

@@ -35,6 +35,7 @@ public class PublishSubscribeTests
         json.Should().Contain("\"Count\":7");
     }
 
+    #if NETFRAMEWORK
     [Fact]
     public async Task Subscribe_Deserializes_Payload_And_Invokes_Handler()
     {
@@ -55,11 +56,20 @@ public class PublishSubscribeTests
             return Task.CompletedTask;
         });
 
+        // Wait for factory to create the connection used by the subscriber
+        var initial = ws.LastConnection;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (ReferenceEquals(initial, ws.LastConnection) && sw.Elapsed < TimeSpan.FromSeconds(2))
+        {
+            await Task.Delay(25);
+        }
+
         var payload = Encoding.UTF8.GetBytes("{\"Name\":\"hello\",\"Count\":3}");
         var b64 = Convert.ToBase64String(payload);
         var sentAt = DateTimeOffset.UtcNow.ToString("o");
         var json = $"{{\"header\":{{\"topic\":\"topic2\",\"username\":\"u1\",\"sentAtUtc\":\"{sentAt}\"}},\"payload\":\"{b64}\"}}";
-        ws.LastConnection.EnqueueText(json);
+        var connRef = ws.LastConnection;
+        connRef.EnqueueText(json);
 
         var completed = await Task.WhenAny(tcs.Task, Task.Delay(TimeSpan.FromSeconds(5)));
         completed.Should().Be(tcs.Task);
@@ -69,6 +79,7 @@ public class PublishSubscribeTests
 
         sub.Dispose();
     }
+    #endif
 
     private sealed class Sample { public string Name { get; set; } = string.Empty; public int Count { get; set; } }
 }

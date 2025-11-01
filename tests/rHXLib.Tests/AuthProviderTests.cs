@@ -23,7 +23,7 @@ public class AuthProviderTests
         var tmp = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".json");
         try
         {
-            await File.WriteAllTextAsync(tmp, "{\"access_token\":\"tok123\"}");
+            File.WriteAllText(tmp, "{\"access_token\":\"tok123\"}");
             var p = new LauncherFileTokenProvider(tmp);
             var t = await p.GetAccessTokenAsync();
             t.Should().Be("tok123");
@@ -34,4 +34,3 @@ public class AuthProviderTests
         }
     }
 }
-
