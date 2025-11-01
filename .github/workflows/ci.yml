@@ -21,7 +21,7 @@ jobs:
         run: dotnet build rHXLib.sln -c Release --no-restore
       - name: Test (Linux)
         if: runner.os == 'Linux'
-        run: dotnet test rHXLib.sln -c Release --no-build --filter "TestCategory!=WindowsOnly" --logger 'trx;LogFileName=test-results.trx'
+        run: dotnet test rHXLib.sln -c Release -f net8.0 --no-build --logger 'trx;LogFileName=test-results.trx'
       - name: Test (Windows)
         if: runner.os == 'Windows'
         run: dotnet test rHXLib.sln -c Release --no-build --logger 'trx;LogFileName=test-results.trx'
@@ -33,4 +33,3 @@ jobs:
           path: |
             **/TestResults/*.trx
             **/coverage.cobertura.xml
-
