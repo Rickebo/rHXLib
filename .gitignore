@@ -1,0 +1,42 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Visual Studio / .NET
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.cache
+*.ide/
+*.ncrunch*
+
+# Build output
+bin/
+obj/
+artifacts/
+TestResults/
+*.trx
+*.coverage*
+*.nupkg
+*.snupkg
+
+# Rider / IntelliJ / JetBrains
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# VS Code
+.vscode/
+.history/
+
+# NuGet
+packages/
+*.nuget.props
+*.nuget.targets
+
+# Logs
+*.log
+
