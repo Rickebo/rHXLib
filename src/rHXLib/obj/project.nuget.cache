@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "U/Dp6LCzddY=",
+  "dgSpecHash": "7BeHXbz4yuQ=",
   "success": true,
-  "projectFilePath": "C:\\Projects\\Other\\rHXLib\\src\\rHXLib\\rHXLib.csproj",
+  "projectFilePath": "C:\\Projects\\Visual Studio 2019\\rHXBF4\\lib\\rHXLib\\src\\rHXLib\\rHXLib.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\Simon\\.nuget\\packages\\microsoft.bcl.asyncinterfaces\\8.0.0\\microsoft.bcl.asyncinterfaces.8.0.0.nupkg.sha512",
     "C:\\Users\\Simon\\.nuget\\packages\\microsoft.bcl.timeprovider\\8.0.0\\microsoft.bcl.timeprovider.8.0.0.nupkg.sha512",

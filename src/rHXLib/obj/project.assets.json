@@ -4721,11 +4721,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Projects\\Other\\rHXLib\\src\\rHXLib\\rHXLib.csproj",
+      "projectUniqueName": "C:\\Projects\\Visual Studio 2019\\rHXBF4\\lib\\rHXLib\\src\\rHXLib\\rHXLib.csproj",
       "projectName": "rHXLib",
-      "projectPath": "C:\\Projects\\Other\\rHXLib\\src\\rHXLib\\rHXLib.csproj",
+      "projectPath": "C:\\Projects\\Visual Studio 2019\\rHXBF4\\lib\\rHXLib\\src\\rHXLib\\rHXLib.csproj",
       "packagesPath": "C:\\Users\\Simon\\.nuget\\packages\\",
-      "outputPath": "C:\\Projects\\Other\\rHXLib\\src\\rHXLib\\obj\\",
+      "outputPath": "C:\\Projects\\Visual Studio 2019\\rHXBF4\\lib\\rHXLib\\src\\rHXLib\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages",
