@@ -1,0 +1,115 @@
+name: Package rHXLib
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: rhxlib-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  decide-version:
+    name: Decide Version (convco)
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.setver.outputs.version }}
+      versionTag: ${{ steps.setver.outputs.versionTag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure tags are fetched
+        shell: bash
+        run: git fetch --force --tags --prune
+
+      - name: Compute version via convco (DockerHub)
+        id: setver
+        shell: bash
+        run: |
+          ver=$(docker run --pull always --rm -u "$(id -u):$(id -g)" -v "${{ github.workspace }}:/repo" -w "/repo" convco/convco:latest version --bump)
+          if [ -z "$ver" ]; then echo "convco returned empty version" && exit 1; fi
+          ver=$(echo "$ver" | tr -d '\r\n')
+          if [ "$ver" = "0.0.0" ]; then ver="0.1.0"; fi
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "versionTag=v$ver" >> "$GITHUB_OUTPUT"
+          echo "Using version: $ver"
+
+      - name: Generate changelog (convco, DockerHub)
+        id: notes
+        shell: bash
+        run: |
+          out="${{ github.workspace }}/CHANGELOG.rHXLib.md"
+          rm -f "$out"
+          docker run --pull always --rm -u "$(id -u):$(id -g)" -v "${{ github.workspace }}:/repo" -w "/repo" convco/convco:latest changelog --unreleased "${{ steps.setver.outputs.version }}" -m 1 -n -o "/repo/CHANGELOG.rHXLib.md"
+          test -f "$out" || { echo 'Failed to generate changelog'; exit 1; }
+          echo "path=$out" >> "$GITHUB_OUTPUT"
+
+      - name: Upload changelog artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rhxlib-changelog
+          path: ${{ steps.notes.outputs.path }}
+
+  pack-publish:
+    name: Build, Pack, Publish, Release
+    runs-on: windows-latest
+    needs: decide-version
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        shell: pwsh
+        run: |
+          dotnet restore "src/rHXLib/rHXLib.csproj"
+
+      - name: Pack (Release)
+        shell: pwsh
+        run: |
+          dotnet pack "src/rHXLib/rHXLib.csproj" -c Release -o "$env:GITHUB_WORKSPACE\artifacts" -p:PackageVersion="${{ needs.decide-version.outputs.version }}" -p:ContinuousIntegrationBuild=true -p:IncludeSymbols=true -p:SymbolPackageFormat=snupkg
+
+      - name: Configure NuGet source (GitHub Packages)
+        shell: pwsh
+        run: |
+          $sourceName = "github"
+          $feed = "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
+          dotnet nuget remove source $sourceName 2>$null || $true
+          dotnet nuget add source $feed --name $sourceName --username "${{ github.actor }}" --password "${{ secrets.GITHUB_TOKEN }}" --store-password-in-clear-text
+
+      - name: Publish package
+        shell: pwsh
+        run: |
+          dotnet nuget push "$env:GITHUB_WORKSPACE\artifacts\*.nupkg" --source github --skip-duplicate
+
+      - name: Download changelog artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: rhxlib-changelog
+          path: ${{ runner.temp }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.decide-version.outputs.versionTag }}
+          name: rHXLib ${{ needs.decide-version.outputs.versionTag }}
+          draft: false
+          prerelease: false
+          body_path: ${{ runner.temp }}/CHANGELOG.rHXLib.md
+          files: |
+            artifacts/*.nupkg
+
