@@ -9,6 +9,8 @@
     <RootNamespace>rHXLib</RootNamespace>
     <Description>Typed publish/subscribe client for rHX2 topics with pluggable serialization and token-based auth.</Description>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <!-- Suppress CS1591: Missing XML comment for publicly visible API -->
+    <NoWarn>$(NoWarn);1591</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
